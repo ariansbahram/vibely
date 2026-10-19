@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Vibely</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body class="bg-zinc-950 text-white min-h-screen">
+
+    <!-- Navbar -->
+    <nav class="flex justify-between items-center px-8 py-5 border-b border-zinc-800">
+        <h1 class="text-2xl font-bold">
+            Vibely
+        </h1>
+
+        <button
+            id="spotifyLogin"
+            class="bg-green-500 hover:bg-green-400 text-black font-semibold px-5 py-2 rounded-full"
+        >
+            Connect Spotify
+        </button>
+    </nav>
+
+
+    <!-- Hero / Home -->
+    <main class="max-w-4xl mx-auto px-6 py-20">
+
+        <section class="text-center mb-16">
+
+            <h2 class="text-5xl font-bold mb-5">
+                Find the soundtrack for your exact vibe.
+            </h2>
+
+            <p class="text-zinc-400 text-lg">
+                Describe your mood, moment, or situation and Vibely will
+                create a Spotify playlist that matches it.
+            </p>
+
+        </section>
+
+
+        <!-- Mood Form -->
+        <section class="bg-zinc-900 rounded-2xl p-8 shadow-lg">
+
+            <h3 class="text-2xl font-semibold mb-4">
+                What's your vibe?
+            </h3>
+
+            <form id="moodForm">
+
+                <textarea
+                    id="moodInput"
+                    rows="4"
+                    placeholder="Example: driving through a rainy city at 2 AM feeling slightly nostalgic..."
+                    class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-green-500"
+                ></textarea>
+
+                <button
+                    type="submit"
+                    class="mt-4 bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full"
+                >
+                    Generate Playlist
+                </button>
+
+            </form>
+
+        </section>
+
+
+        <!-- Recommendation Results -->
+        <section id="recommendations" class="mt-16 hidden">
+
+            <h3 class="text-2xl font-semibold mb-6">
+                Recommended Songs
+            </h3>
+
+            <div id="songList" class="space-y-4">
+
+                <!-- Placeholder song -->
+                <div class="bg-zinc-900 rounded-xl p-4 flex items-center justify-between">
+
+                    <div>
+                        <h4 class="font-semibold">
+                            Example Song
+                        </h4>
+
+                        <p class="text-zinc-400">
+                            Example Artist
+                        </p>
+                    </div>
+
+                    <span class="text-green-400">
+                        92% match
+                    </span>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- Playlist Preview -->
+        <section id="playlistPreview" class="mt-16 hidden">
+
+            <h3 class="text-2xl font-semibold mb-4">
+                Your Vibely Playlist
+            </h3>
+
+            <div class="bg-zinc-900 rounded-xl p-6">
+
+                <p class="text-zinc-400 mb-4">
+                    Your generated playlist will appear here.
+                </p>
+
+                <button
+                    class="bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full"
+                >
+                    Save to Spotify
+                </button>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <script src="js/app.js"></script>
+
+</body>
+</html>
