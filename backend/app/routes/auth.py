@@ -1,7 +1,8 @@
 import spotipy
-
+from app.services.token_store import create_session
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+
 
 from app.services.spotify_auth import get_spotify_oauth
 
@@ -35,14 +36,28 @@ def spotify_callback(code: str = None, error: str = None):
     spotify_oauth = get_spotify_oauth()
     token_info = spotify_oauth.get_access_token(code)
 
+    session_id = create_session(token_info)
+
     spotify = spotipy.Spotify(auth=token_info["access_token"])
     user = spotify.current_user()
 
-    return {
+    response = JSONResponse({
         "message": "Spotify authentication successful",
         "user": {
             "id": user["id"],
             "display_name": user.get("display_name"),
             "email": user.get("email"),
         },
-    }
+    })
+    response.set_cookie(
+        key="vibely_session",
+        value=session_id,
+        httponly=True,              # JavaScript can't read it, which protects it from theft
+        samesite="lax",             # only sent from your own site's pages
+        max_age=60 * 60 * 24 * 7,   # browser keeps it for 7 days
+    )
+    return response
+
+    
+    
+

@@ -1,6 +1,7 @@
 import os
 
 from dotenv import load_dotenv
+from spotipy.cache_handler import MemoryCacheHandler
 from spotipy.oauth2 import SpotifyOAuth
 
 load_dotenv()
@@ -24,4 +25,5 @@ def get_spotify_oauth():
         redirect_uri=SPOTIFY_REDIRECT_URI,
         scope=" ".join(SCOPES),
         show_dialog=True,
+        cache_handler=MemoryCacheHandler(),
     )

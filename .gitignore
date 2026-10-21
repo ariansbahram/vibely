@@ -15,6 +15,9 @@ __pycache__/
 .pytest_cache/
 .coverage
 
+# Spotipy token cache (contains access/refresh tokens)
+.cache
+
 # IDE
 .vscode/
 .idea/
