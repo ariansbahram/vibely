@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.services.roccobeats import get_audio_features
+from app.services.feature_lookup import get_features_with_backup
 
 router = APIRouter(
     tags=["Audio Features"],
@@ -24,10 +24,10 @@ def read_audio_features(
             status_code=400,
             detail="At most 100 track IDs per request.",
         )
-
-    features = get_audio_features(track_ids)
+    features, from_dataset = get_features_with_backup(track_ids)
 
     return {
         "features": list(features.values()),
+        "from_dataset": from_dataset,
         "missing": [track_id for track_id in track_ids if track_id not in features],
     }
