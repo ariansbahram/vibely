@@ -28,3 +28,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Datasets (download separately, see README)
+backend/data/
