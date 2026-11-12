@@ -123,6 +123,8 @@ Use `127.0.0.1`, not `localhost`, so the login cookie is sent to the backend.
 | http://127.0.0.1:8000/search?q=blinding%20lights | Search Spotify tracks by song, artist, or keyword (log in first) |
 | http://127.0.0.1:8000/audio-features?ids=0VjIjW4GlUZAMYd2vXMi3b | Audio features (energy, valence, tempo, etc.) for up to 100 comma-separated Spotify track IDs |
 
+| `POST` http://127.0.0.1:8000/recommendations | Submit a mood or situation description (see [Recommendations](#recommendations)) |
+
 Logins are stored in memory, so restarting the backend (including auto-reload on save) logs everyone out.
 
 ### Search
@@ -136,12 +138,183 @@ Logins are stored in memory, so restarting the backend (including auto-reload on
     "title": "Blinding Lights",
     "artists": ["The Weeknd"],
     "album": "After Hours",
-    "spotify_url": "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"
+    "spotify_url": "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b",
+    "genre": null,
+    "explicit": false,
+    "popularity": 90,
+    "release_year": 2020
   }
 ]
 ```
 
 Spotify filters work inside `q`, for example `q=track:blinding lights artist:the weeknd` or `q=artist:taylor swift`.
+
+### Recommendations
+
+`POST /recommendations` accepts the user's mood or situation as JSON. No login is needed.
+
+```bash
+curl -X POST http://127.0.0.1:8000/recommendations -H "Content-Type: application/json" -d '{"mood": "rainy Sunday morning, studying with coffee"}'
+```
+
+```json
+{
+  "mood": "rainy Sunday morning, studying with coffee",
+  "mood_terms": ["rainy", "morning", "focused"],
+  "target_features": {
+    "energy": 0.383,
+    "tempo": 95.0,
+    "valence": 0.475,
+    "acousticness": 0.583,
+    "danceability": 0.55,
+    "instrumentalness": 0.8
+  },
+  "recommendations": []
+}
+```
+
+The `mood` field is validated by the `RecommendationRequest` Pydantic model:
+
+- required, and must be a string
+- 3–500 characters after surrounding whitespace is removed
+- must contain at least one letter (so `"!!!"` or `"12345"` are rejected)
+- repeated spaces and line breaks are collapsed into single spaces
+
+Invalid input returns `422` with a message saying what is wrong. `recommendations` is empty for now; matching the mood to songs is the next step.
+
+#### Mood terms
+
+`extract_mood_terms()` in `services/mood_analysis.py` finds the meaningful terms in the description and returns them in the order they appear:
+
+```python
+extract_mood_terms("Nostalgic late-night drive in the rain")
+# ["nostalgic", "late night", "road trip", "rainy"]
+```
+
+- It knows 27 terms (feelings, energy level, time and weather, activities), each with a list of words and phrases that signal it, e.g. `studying`, `homework`, and `coding` all give `focused`. To teach it a new word, add it to `MOOD_TERMS`.
+- Case, punctuation, and hyphens are ignored, and only whole words match (`train` does not give `rainy`).
+- A term right after a negation is skipped: `"not sad, just tired"` gives `["sleepy"]`.
+- A description with no known words gives an empty list.
+
+#### Target features
+
+`get_target_features()` in `services/mood_targets.py` turns the mood terms into the audio features a matching song should have. `MOOD_TARGETS` lists what each term points to, for example:
+
+| Term | Target |
+|---|---|
+| `energetic` | high energy (0.90), fast tempo (140 BPM), danceable, not acoustic |
+| `sad` | low valence (0.15), low energy, moderately acoustic (0.60), slow tempo (85 BPM) |
+| `nostalgic` | lowish valence (0.40), moderate energy and acousticness (0.50), 100 BPM |
+| `focused` | mostly instrumental (0.80), low energy |
+
+- A term only sets the features it has an opinion about.
+- With several terms, each feature is the average of the terms that mention it, so `["energetic", "sad"]` gives energy 0.60.
+- A feature that no term mentions gets a neutral value close to the dataset's middle (energy 0.65, tempo 120, valence 0.45, acousticness 0.30, danceability 0.55, instrumentalness 0.10). With no terms at all, every feature is neutral.
+- `create_target_vector()` returns the same targets as a NumPy vector in the same feature order as `create_song_vector()`.
+
+#### Mood vector
+
+`create_mood_vector()` in `services/mood_vector.py` does both steps at once: it takes the description, finds the mood terms, and returns the target vector. The attributes and their order match `create_song_vector()` (energy, tempo, valence, acousticness, danceability, instrumentalness):
+
+```python
+create_mood_vector("something energetic for the gym")
+# array([0.91, 140.0, 0.6, 0.075, 0.7, 0.1])
+```
+
+`create_scaled_mood_vector()` returns the same vector on the 0–1 scale used by `create_scaled_song_vector()`, so a mood and a song can be compared directly.
+
+#### Similarity scores
+
+`score_tracks()` in `services/similarity.py` compares a mood description against candidate tracks (a list of `AudioFeatures`) and returns a score for each one, best match first:
+
+```python
+score_tracks("something energetic for the gym", candidates)
+# {"gym_banger": 0.9972, "mid_pop": 0.9714, "study_lofi": 0.6556, "slow_acoustic": 0.4799}
+```
+
+It uses scikit-learn's `cosine_similarity` on the scaled vectors by default. Pass `metric="euclidean"` to score by straight-line distance instead (1.0 is identical, 0.0 is as far apart as possible).
+
+| Metric | What it compares | Notes |
+|---|---|---|
+| `cosine` (default) | The balance between features (direction of the vector) | Scores bunch up near the top: the typical dataset song scores about 0.9 against a gym mood. |
+| `euclidean` | How close every feature is to its target | In testing on the full dataset, its top matches were closer to the target values. |
+
+`calculate_similarity_scores()` is the lower-level scoring function: it takes an already-scaled mood vector and a matrix of scaled song vectors, so it can score the whole dataset at once (about 0.2 s for 1.16M songs).
+
+#### Ranking
+
+`rank_tracks()` in `services/ranking.py` takes candidate tracks and their scores and returns the top matches, best first, each with its `score`:
+
+```python
+rank_tracks(tracks, scores, limit=10, max_per_artist=2)
+```
+
+- `limit` is the most tracks to return (default 10).
+- `max_per_artist` is optional. With `max_per_artist=2`, no artist appears on more than two returned tracks; every artist listed on a track counts, including featured ones. Leave it out for no restriction.
+- Duplicates are removed. A track ID is used once, and so is each song: tracks with the same main artist and the same title are treated as one song, ignoring anything in brackets or after a ` - ` (so `Blinding Lights`, `Blinding Lights - Remastered`, and `Blinding Lights (Live)` are one song). The highest-scoring version is kept.
+- Tracks without a score are left out.
+
+#### Playlist order
+
+`order_tracks()` in `services/ordering.py` rearranges the recommended tracks so the playlist flows, instead of playing them strictly from highest to lowest score:
+
+```python
+order_tracks(tracks, features)  # features: {track_id: AudioFeatures}
+```
+
+- The first track stays first, so the playlist opens with the best match.
+- From there, each song is followed by the most similar song not used yet. A second pass then tries small changes (reversing a stretch of the order, or moving one song elsewhere) and keeps each one that raises the playlist's total transition score. The result is close to the best possible order, not guaranteed to be it: on 40 test sets of 8 songs it found the best order 34 times.
+- Neighbors are compared the same way `transition_score()` compares two songs (see below).
+- The same tracks come back; only the order changes. Tracks without audio features go at the end.
+- `get_playlist_transition_scores(tracks, features)` returns the transition score between each pair of neighbors, for checking or displaying how well a playlist flows.
+
+On 20 random dataset songs, the average change between neighbors dropped from 29 to 17 BPM in tempo, from 0.32 to 0.16 in energy, and from 0.42 to 0.15 in valence; the average transition score rose from 0.70 to 0.85.
+
+#### Transition score
+
+`transition_score()` in `services/ordering.py` rates how smoothly one song leads into another, from 0 to 1:
+
+```python
+transition_score(track_a, track_b)                        # two AudioFeatures
+transition_score(track_a, track_b, {"tempo": 1.0, "energy": 1.0})  # choose the attributes
+```
+
+- `1.0` means the songs are identical on every compared attribute; `0.0` means they are as different as possible on all of them. The order doesn't matter.
+- By default it compares the attributes in `TRANSITION_WEIGHTS`, after scaling: tempo (weight 2), energy (1), valence (1), acousticness (0.5), and danceability (0.5). Tempo counts double because the scale covers 30–250 BPM while most songs sit between 80 and 165.
+- Pass your own weights to compare other attributes. Any of the six recommendation features can be used.
+- For reference, two random dataset songs typically score about 0.77; two similar gym tracks score about 0.97, and a gym track into a slow acoustic song about 0.56.
+
+#### Filters
+
+The request can include an optional `filters` object to narrow down which songs may be recommended. Every filter is optional:
+
+```json
+{
+  "mood": "rainy Sunday morning, studying with coffee",
+  "filters": {
+    "genres": ["indie-pop", "folk"],
+    "artists": ["Phoebe Bridgers"],
+    "allow_explicit": false,
+    "min_popularity": 30,
+    "max_popularity": 90,
+    "min_year": 2010,
+    "max_year": 2023
+  }
+}
+```
+
+| Filter | Keeps tracks that... |
+|---|---|
+| `genres` | are in one of the listed genres (`Hip Hop` and `hip-hop` are the same) |
+| `artists` | have one of the listed artists, including as a featured artist |
+| `allow_explicit` | `false` keeps only tracks known to be clean; `true` (default) keeps everything |
+| `min_popularity`, `max_popularity` | have a Spotify popularity (0–100) inside the range |
+| `min_year`, `max_year` | were released inside the range (1900–2100) |
+
+- A filter that is left out, or an empty `genres`/`artists` list, restricts nothing.
+- A `min` greater than its `max`, or a value outside the allowed range, returns `422`.
+- `filter_tracks()` in `services/filters.py` applies the filters to a list of tracks. It reads the optional `genre`, `explicit`, `popularity`, and `release_year` fields on `Track`.
+- A track that is missing the detail a filter needs is left out. This matters because the two sources know different things: Spotify search provides `explicit`, `popularity`, and `release_year` but no genre; the Kaggle dataset has genre, popularity, and year but no explicit flag.
 
 ## Project Structure
 
@@ -149,13 +322,15 @@ Spotify filters work inside `q`, for example `q=track:blinding lights artist:the
 backend/app/
 ├── main.py                    # FastAPI app and router registration
 ├── models/
-│   ├── track.py               # Track model (id, title, artists, album, spotify_url)
-│   └── audio_features.py      # AudioFeatures model (energy, valence, tempo, etc.)
+│   ├── track.py               # Track model (id, title, artists, album, spotify_url, plus optional genre, explicit, popularity, release_year)
+│   ├── audio_features.py      # AudioFeatures model (energy, valence, tempo, etc.)
+│   └── recommendation.py      # RecommendationRequest (validated mood text), RecommendationFilters, RecommendedTrack, RecommendationResponse
 ├── routes/
 │   ├── auth.py                # /auth/login, /auth/callback
 │   ├── user.py                # /me
 │   ├── search.py              # /search
-│   └── features.py            # /audio-features
+│   ├── features.py            # /audio-features
+│   └── recommendations.py     # POST /recommendations
 ├── services/
 │   ├── spotify_auth.py        # Spotify OAuth setup (tokens kept in memory, not in a .cache file)
 │   ├── token_store.py         # In-memory login sessions
@@ -163,7 +338,14 @@ backend/app/
 │   ├── spotify_search.py      # search_tracks()
 │   ├── roccobeats.py          # get_audio_features(): ReccoBeats API (main source)
 │   ├── dataset.py             # get_dataset_features(): Kaggle CSV lookup (backup)
-│   └── feature_lookup.py      # get_features_with_backup(): ReccoBeats, then dataset
+│   ├── feature_lookup.py      # get_features_with_backup(): ReccoBeats, then dataset
+│   ├── mood_analysis.py       # extract_mood_terms(): mood terms in a description
+│   ├── mood_targets.py        # get_target_features(): mood terms -> target audio features
+│   ├── mood_vector.py         # create_mood_vector(): description -> target vector
+│   ├── similarity.py          # score_tracks(): similarity score for each candidate track
+│   ├── ranking.py             # rank_tracks(): top matches, no duplicates, optional artist limit
+│   ├── filters.py             # filter_tracks(): genre, artist, explicit, popularity, release year
+│   └── ordering.py            # order_tracks(): smooth transitions between consecutive tracks
 └── utils/dependencies.py      # get_spotify_client(): logged-in Spotify client from the session cookie
 
 backend/data/spotify_data.csv  # Kaggle dataset (not in git, see Setup step 5)
