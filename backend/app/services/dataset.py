@@ -22,6 +22,15 @@ FEATURE_COLUMNS = [
     "mode",
 ]
 
+# Track details shown with a recommendation and used by the filters
+TRACK_COLUMNS = [
+    "track_name",
+    "artist_name",
+    "genre",
+    "popularity",
+    "year",
+]
+
 
 @lru_cache(maxsize=1)
 def load_dataset():
@@ -45,11 +54,11 @@ def load_dataset():
     )
 
     # Keep only the columns Vibely needs
-    required_columns = ["track_id", *FEATURE_COLUMNS]
+    required_columns = ["track_id", *TRACK_COLUMNS, *FEATURE_COLUMNS]
     dataset = dataset[required_columns].copy()
 
-    # Remove rows without a Spotify track ID
-    dataset = dataset.dropna(subset=["track_id"])
+    # Remove rows without a Spotify track ID, title, or artist
+    dataset = dataset.dropna(subset=["track_id", "track_name", "artist_name"])
 
     # Remove duplicate tracks
     dataset = dataset.drop_duplicates(

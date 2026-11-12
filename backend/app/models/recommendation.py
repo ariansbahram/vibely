@@ -2,6 +2,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
+from app.models.audio_features import AudioFeatures
 from app.models.track import Track
 
 MIN_MOOD_LENGTH = 3
@@ -73,6 +74,13 @@ class RecommendationRequest(BaseModel):
     # Optional preferences that narrow down which songs can be recommended
     filters: RecommendationFilters | None = None
 
+    limit: int = Field(10, ge=1, le=50, description="How many songs to return")
+    max_per_artist: int | None = Field(
+        2,
+        ge=1,
+        description="Most songs by one artist; null for no limit",
+    )
+
     @field_validator("mood")
     @classmethod
     def mood_must_contain_words(cls, value: str) -> str:
@@ -85,11 +93,14 @@ class RecommendationRequest(BaseModel):
 
 
 class RecommendedTrack(Track):
-    score: float  # similarity to the mood; higher is a better match
+    score: float  # similarity to the mood, 0–1; higher is a better match
+    # The song's tempo, energy, mood, etc. Always filled in by POST /recommendations.
+    audio_features: AudioFeatures | None = None
 
 
 class RecommendationResponse(BaseModel):
     mood: str                     # the cleaned-up description that was used
     mood_terms: list[str]         # meaningful terms found in it, e.g. ["rainy", "calm"]
     target_features: dict[str, float]  # audio features the songs should be close to
+    playlist_title: str           # suggested playlist name, e.g. "Rainy Morning Focus"
     recommendations: list[RecommendedTrack]  # songs matching the mood, best first

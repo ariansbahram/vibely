@@ -27,6 +27,9 @@
         </button>
     </nav>
 
+    <!-- Shown after returning from Spotify's login page -->
+    <div id="spotifyMessage" class="hidden text-center px-6 py-3"></div>
+
 
     <!-- Hero / Home -->
     <main class="max-w-4xl mx-auto px-6 py-20">
@@ -62,8 +65,9 @@
                 ></textarea>
 
                 <button
+                    id="generateButton"
                     type="submit"
-                    class="mt-4 bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full"
+                    class="mt-4 bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full disabled:opacity-50 disabled:cursor-wait"
                 >
                     Generate Playlist
                 </button>
@@ -80,28 +84,11 @@
                 Recommended Songs
             </h3>
 
-            <div id="songList" class="space-y-4">
+            <!-- Loading, error, and "no songs" messages -->
+            <p id="recommendationStatus" class="text-zinc-400 mb-4"></p>
 
-                <!-- Placeholder song -->
-                <div class="bg-zinc-900 rounded-xl p-4 flex items-center justify-between">
-
-                    <div>
-                        <h4 class="font-semibold">
-                            Example Song
-                        </h4>
-
-                        <p class="text-zinc-400">
-                            Example Artist
-                        </p>
-                    </div>
-
-                    <span class="text-green-400">
-                        92% match
-                    </span>
-
-                </div>
-
-            </div>
+            <!-- Filled in by js/app.js, one card per song -->
+            <div id="songList" class="space-y-4"></div>
 
         </section>
 
@@ -115,15 +102,37 @@
 
             <div class="bg-zinc-900 rounded-xl p-6">
 
-                <p class="text-zinc-400 mb-4">
-                    Your generated playlist will appear here.
-                </p>
+                <div class="flex justify-between items-baseline mb-2">
+                    <label for="playlistName" class="text-zinc-400">
+                        Playlist name <span class="text-zinc-500 text-sm">(suggested from your mood, edit it if you like)</span>
+                    </label>
+
+                    <!-- Shown only after the user changes the suggested name -->
+                    <button
+                        id="useSuggestedName"
+                        type="button"
+                        class="hidden text-sm text-green-400 hover:text-green-300 underline"
+                    >
+                        Use suggested name
+                    </button>
+                </div>
+
+                <input
+                    id="playlistName"
+                    type="text"
+                    maxlength="100"
+                    class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3 mb-4 focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
 
                 <button
-                    class="bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full"
+                    id="savePlaylist"
+                    class="bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full disabled:opacity-50 disabled:cursor-wait"
                 >
                     Save to Spotify
                 </button>
+
+                <!-- Saving, success (with a link to the playlist), and error messages -->
+                <p id="playlistStatus" class="mt-4 hidden"></p>
 
             </div>
 

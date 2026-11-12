@@ -10,6 +10,9 @@ SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
 
+# Where the frontend runs. After logging in, the user is sent back here.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:5500")
+
 SCOPES = [
     "user-read-private",
     "user-read-email",

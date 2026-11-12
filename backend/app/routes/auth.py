@@ -1,15 +1,22 @@
-import spotipy
+from fastapi import APIRouter
+from fastapi.responses import RedirectResponse
+from spotipy.oauth2 import SpotifyOauthError
+
+from app.services.spotify_auth import FRONTEND_URL, get_spotify_oauth
 from app.services.token_store import create_session
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse, RedirectResponse
-
-
-from app.services.spotify_auth import get_spotify_oauth
 
 router = APIRouter(
     prefix="/auth",
     tags=["Spotify Authentication"],
 )
+
+
+def back_to_app(result: str) -> RedirectResponse:
+    """Send the user back to the frontend, telling it how the login went.
+
+    result is "connected", "denied" (the user said no on Spotify's page), or "error".
+    """
+    return RedirectResponse(f"{FRONTEND_URL}/?spotify={result}")
 
 
 @router.get("/login")
@@ -21,34 +28,21 @@ def spotify_login():
 
 @router.get("/callback")
 def spotify_callback(code: str = None, error: str = None):
+    # Spotify sends the user here after its login page, with either a code or an error
     if error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Spotify authorization failed: {error}",
-        )
+        return back_to_app("denied" if error == "access_denied" else "error")
 
     if not code:
-        raise HTTPException(
-            status_code=400,
-            detail="Spotify did not return an authorization code.",
-        )
+        return back_to_app("error")
 
-    spotify_oauth = get_spotify_oauth()
-    token_info = spotify_oauth.get_access_token(code)
+    try:
+        token_info = get_spotify_oauth().get_access_token(code)
+    except SpotifyOauthError:
+        return back_to_app("error")  # e.g. the code expired or was already used
 
     session_id = create_session(token_info)
 
-    spotify = spotipy.Spotify(auth=token_info["access_token"])
-    user = spotify.current_user()
-
-    response = JSONResponse({
-        "message": "Spotify authentication successful",
-        "user": {
-            "id": user["id"],
-            "display_name": user.get("display_name"),
-            "email": user.get("email"),
-        },
-    })
+    response = back_to_app("connected")
     response.set_cookie(
         key="vibely_session",
         value=session_id,
@@ -57,7 +51,3 @@ def spotify_callback(code: str = None, error: str = None):
         max_age=60 * 60 * 24 * 7,   # browser keeps it for 7 days
     )
     return response
-
-    
-    
-

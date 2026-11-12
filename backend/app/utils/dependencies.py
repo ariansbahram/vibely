@@ -22,3 +22,11 @@ def get_spotify_client(vibely_session: str = Cookie(None)):
         update_token(vibely_session, token_info)
 
     return spotipy.Spotify(auth=token_info["access_token"])
+
+
+def get_optional_spotify_client(vibely_session: str = Cookie(None)):
+    """The Spotify client if the user is logged in, otherwise None (no 401)."""
+    if not vibely_session or not get_token(vibely_session):
+        return None
+
+    return get_spotify_client(vibely_session)

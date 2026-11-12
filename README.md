@@ -72,6 +72,8 @@ SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/auth/callback
 
 The redirect URI in the Spotify Developer Dashboard must also be `http://127.0.0.1:8000/auth/callback`.
 
+Optional: `FRONTEND_URL` is where the frontend runs (default `http://127.0.0.1:5500`). After logging in, users are sent back there, and it's the only site allowed to call the backend from a browser.
+
 Do not commit `.env` to GitHub.
 
 ### 5. Download the dataset (optional)
@@ -112,18 +114,23 @@ Then open http://127.0.0.1:5500 in the browser.
 
 Use `127.0.0.1`, not `localhost`, so the login cookie is sent to the backend.
 
+The backend only accepts browser requests from `http://127.0.0.1:5500` (CORS). If you serve the frontend somewhere else, set `FRONTEND_URL` in `.env` to match.
+
+**Connect Spotify** takes you to Spotify's login page and then back to the app, which shows "Connected to Spotify." and changes the button to "Connected as <your name>". Songs already on screen are kept through the login, so you can generate songs first and connect when you want to save them.
+
 ## Backend URLs
 
 | URL | Description |
 |---|---|
 | http://127.0.0.1:8000/docs | FastAPI documentation |
 | http://127.0.0.1:8000/health | Health check |
-| http://127.0.0.1:8000/auth/login | Log in with Spotify |
+| http://127.0.0.1:8000/auth/login | Log in with Spotify, then return to the frontend with `?spotify=connected`, `denied`, or `error` |
 | http://127.0.0.1:8000/me | Current Spotify user's ID, display name, and email (log in first) |
 | http://127.0.0.1:8000/search?q=blinding%20lights | Search Spotify tracks by song, artist, or keyword (log in first) |
 | http://127.0.0.1:8000/audio-features?ids=0VjIjW4GlUZAMYd2vXMi3b | Audio features (energy, valence, tempo, etc.) for up to 100 comma-separated Spotify track IDs |
 
 | `POST` http://127.0.0.1:8000/recommendations | Submit a mood or situation description (see [Recommendations](#recommendations)) |
+| `POST` http://127.0.0.1:8000/playlists | Save songs as a new playlist in the user's Spotify account (log in first, see [Playlists](#playlists)) |
 
 Logins are stored in memory, so restarting the backend (including auto-reload on save) logs everyone out.
 
@@ -138,6 +145,7 @@ Logins are stored in memory, so restarting the backend (including auto-reload on
     "title": "Blinding Lights",
     "artists": ["The Weeknd"],
     "album": "After Hours",
+    "album_image_url": "https://i.scdn.co/image/ab67616d0000b273...",
     "spotify_url": "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b",
     "genre": null,
     "explicit": false,
@@ -151,10 +159,10 @@ Spotify filters work inside `q`, for example `q=track:blinding lights artist:the
 
 ### Recommendations
 
-`POST /recommendations` accepts the user's mood or situation as JSON. No login is needed.
+`POST /recommendations` takes the user's mood or situation as JSON and returns matching songs from the Kaggle dataset, best match first. No login is needed, but the dataset must be downloaded (Setup step 5); without it the endpoint returns `503`.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/recommendations -H "Content-Type: application/json" -d '{"mood": "rainy Sunday morning, studying with coffee"}'
+curl -X POST http://127.0.0.1:8000/recommendations -H "Content-Type: application/json" -d '{"mood": "rainy Sunday morning, studying with coffee", "limit": 1}'
 ```
 
 ```json
@@ -169,9 +177,66 @@ curl -X POST http://127.0.0.1:8000/recommendations -H "Content-Type: application
     "danceability": 0.55,
     "instrumentalness": 0.8
   },
-  "recommendations": []
+  "playlist_title": "Rainy Morning Focus",
+  "recommendations": [
+    {
+      "id": "6cdKPAK7e6DiiQXvdyi86d",
+      "title": "It Only Has To Happen Once",
+      "artists": ["Nels Cline"],
+      "album": null,
+      "album_image_url": "https://image-cdn-fa.spotifycdn.com/image/ab67616d00001e02a6871835eef5ff1cc6c78bef",
+      "spotify_url": "https://open.spotify.com/track/6cdKPAK7e6DiiQXvdyi86d",
+      "genre": "guitar",
+      "explicit": null,
+      "popularity": 6,
+      "release_year": 2016,
+      "score": 0.9745,
+      "audio_features": {
+        "track_id": "6cdKPAK7e6DiiQXvdyi86d",
+        "acousticness": 0.593,
+        "danceability": 0.566,
+        "energy": 0.329,
+        "instrumentalness": 0.806,
+        "liveness": 0.133,
+        "loudness": -18.559,
+        "speechiness": 0.0298,
+        "tempo": 97.436,
+        "valence": 0.454,
+        "key": 1,
+        "mode": 1
+      }
+    }
+  ]
 }
 ```
+
+| Request field | Meaning |
+|---|---|
+| `mood` | Required. The mood or situation in the user's own words |
+| `limit` | How many songs to return, 1–50 (default 10) |
+| `max_per_artist` | Most songs by one artist (default 2); `null` for no limit |
+| `filters` | Optional, see [Filters](#filters) |
+
+`playlist_title` is a suggested name for the playlist, built from the mood terms by `generate_playlist_title()` in `services/playlist_title.py`:
+
+| Mood description | Suggested title |
+|---|---|
+| rainy Sunday morning, studying with coffee | Rainy Morning Focus |
+| nostalgic late-night drive in the rain | Nostalgic Late Night Road Trip |
+| sad and lonely | Sad & Lonely Vibes |
+| studying | Focus Mix |
+| something for my wedding (no known mood terms) | Something for my wedding |
+
+A title is: one feeling word (two joined with `&` if there's nothing else), then the time of day, then the activity, or `Vibes` if there's no activity. Each mood term's title word is listed in `DESCRIBE_WORDS`, `WHEN_WORDS`, and `WHAT_WORDS`; a new mood term needs an entry in one of them. Without any known mood terms, the description itself is used, shortened to about 50 characters.
+
+Each song in `recommendations` has:
+
+- `title`, `artists`, `genre`, `popularity`, `release_year`, and `spotify_url` (opens the song in Spotify).
+- `score`: how close the song is to the mood's target features, from 0 to 1 (Euclidean, see [Similarity scores](#similarity-scores)).
+- `audio_features`: the song's tempo, energy, valence, etc. (same fields as `/audio-features`).
+- `album_image_url`: the album artwork. When logged in to Spotify, `album` and `explicit` are filled in too; when logged out they are `null`, and the artwork comes from Spotify's public oEmbed endpoint instead.
+
+How it works (`recommend_tracks()` in `services/recommender.py`): it scores every dataset song that passes the filters against the mood in one go, takes the best candidates, removes duplicates and applies `max_per_artist` with `rank_tracks()`, then looks up album details for the songs it returns (`services/track_details.py`). The first request after starting the backend takes a few seconds while the dataset loads; later ones take under a second.
 
 The `mood` field is validated by the `RecommendationRequest` Pydantic model:
 
@@ -180,7 +245,7 @@ The `mood` field is validated by the `RecommendationRequest` Pydantic model:
 - must contain at least one letter (so `"!!!"` or `"12345"` are rejected)
 - repeated spaces and line breaks are collapsed into single spaces
 
-Invalid input returns `422` with a message saying what is wrong. `recommendations` is empty for now; matching the mood to songs is the next step.
+Invalid input returns `422` with a message saying what is wrong. If no song passes the filters, `recommendations` is an empty list.
 
 #### Mood terms
 
@@ -307,7 +372,7 @@ The request can include an optional `filters` object to narrow down which songs 
 |---|---|
 | `genres` | are in one of the listed genres (`Hip Hop` and `hip-hop` are the same) |
 | `artists` | have one of the listed artists, including as a featured artist |
-| `allow_explicit` | `false` keeps only tracks known to be clean; `true` (default) keeps everything |
+| `allow_explicit` | `false` keeps only tracks known to be clean (needs a Spotify login on `/recommendations`, otherwise `401`); `true` (default) keeps everything |
 | `min_popularity`, `max_popularity` | have a Spotify popularity (0–100) inside the range |
 | `min_year`, `max_year` | were released inside the range (1900–2100) |
 
@@ -316,26 +381,59 @@ The request can include an optional `filters` object to narrow down which songs 
 - `filter_tracks()` in `services/filters.py` applies the filters to a list of tracks. It reads the optional `genre`, `explicit`, `popularity`, and `release_year` fields on `Track`.
 - A track that is missing the detail a filter needs is left out. This matters because the two sources know different things: Spotify search provides `explicit`, `popularity`, and `release_year` but no genre; the Kaggle dataset has genre, popularity, and year but no explicit flag.
 
+### Playlists
+
+`POST /playlists` creates a new playlist in the logged-in user's Spotify account and adds the songs to it, in the order given. It needs a Spotify login; without one it returns `401`.
+
+```bash
+curl -X POST http://127.0.0.1:8000/playlists -b "vibely_session=<your session cookie>" -H "Content-Type: application/json" -d '{"name": "Vibely: rainy Sunday morning", "track_ids": ["0VjIjW4GlUZAMYd2vXMi3b"]}'
+```
+
+```json
+{
+  "id": "3cEYpjA9oz9GiPac4AsH4n",
+  "name": "Vibely: rainy Sunday morning",
+  "spotify_url": "https://open.spotify.com/playlist/3cEYpjA9oz9GiPac4AsH4n",
+  "track_count": 1
+}
+```
+
+| Request field | Meaning |
+|---|---|
+| `name` | Required, 1–100 characters |
+| `track_ids` | Required, 1–500 Spotify track IDs (the `id` of each recommendation). A song listed twice is added once |
+| `description` | Optional, up to 300 characters |
+| `public` | `true` shows the playlist on the user's profile; `false` (default) keeps it private |
+
+- `create_playlist()` in `services/spotify_playlists.py` uses Spotipy's `current_user_playlist_create()` and `playlist_add_items()`, adding songs 100 at a time (Spotify's limit per request).
+- If Spotify rejects the songs after creating the playlist, the empty playlist is removed again and the request fails.
+- `403` usually means the login is missing the playlist permissions (log in again) or, while the Spotify app is in Development Mode, the user isn't on the app's list of allowed users in the Spotify Developer Dashboard.
+- In the frontend, **Save to Spotify** (under the recommendations) calls this endpoint with the songs currently shown and the name in the **Playlist name** box. The box starts with the suggested `playlist_title` and can be changed; **Use suggested name** puts the suggestion back, and an empty box saves with the suggestion.
+
 ## Project Structure
 
 ```
 backend/app/
 ├── main.py                    # FastAPI app and router registration
 ├── models/
-│   ├── track.py               # Track model (id, title, artists, album, spotify_url, plus optional genre, explicit, popularity, release_year)
+│   ├── track.py               # Track model (id, title, artists, spotify_url, plus optional album, album_image_url, genre, explicit, popularity, release_year)
 │   ├── audio_features.py      # AudioFeatures model (energy, valence, tempo, etc.)
-│   └── recommendation.py      # RecommendationRequest (validated mood text), RecommendationFilters, RecommendedTrack, RecommendationResponse
+│   ├── recommendation.py      # RecommendationRequest (validated mood text), RecommendationFilters, RecommendedTrack, RecommendationResponse
+│   └── playlist.py            # PlaylistRequest, PlaylistResponse
 ├── routes/
 │   ├── auth.py                # /auth/login, /auth/callback
 │   ├── user.py                # /me
 │   ├── search.py              # /search
 │   ├── features.py            # /audio-features
-│   └── recommendations.py     # POST /recommendations
+│   ├── recommendations.py     # POST /recommendations
+│   └── playlists.py           # POST /playlists
 ├── services/
 │   ├── spotify_auth.py        # Spotify OAuth setup (tokens kept in memory, not in a .cache file)
 │   ├── token_store.py         # In-memory login sessions
 │   ├── spotify_user.py        # get_user_profile()
 │   ├── spotify_search.py      # search_tracks()
+│   ├── spotify_playlists.py   # create_playlist(): new playlist in the user's account, songs added
+│   ├── playlist_title.py      # generate_playlist_title(): suggested playlist name from the mood terms
 │   ├── roccobeats.py          # get_audio_features(): ReccoBeats API (main source)
 │   ├── dataset.py             # get_dataset_features(): Kaggle CSV lookup (backup)
 │   ├── feature_lookup.py      # get_features_with_backup(): ReccoBeats, then dataset
@@ -345,8 +443,10 @@ backend/app/
 │   ├── similarity.py          # score_tracks(): similarity score for each candidate track
 │   ├── ranking.py             # rank_tracks(): top matches, no duplicates, optional artist limit
 │   ├── filters.py             # filter_tracks(): genre, artist, explicit, popularity, release year
-│   └── ordering.py            # order_tracks(): smooth transitions between consecutive tracks
-└── utils/dependencies.py      # get_spotify_client(): logged-in Spotify client from the session cookie
+│   ├── ordering.py            # order_tracks(): smooth transitions between consecutive tracks
+│   ├── recommender.py         # recommend_tracks(): mood -> ranked dataset songs (used by POST /recommendations)
+│   └── track_details.py       # add_track_details(): album, artwork, explicit flag from Spotify or oEmbed
+└── utils/dependencies.py      # get_spotify_client() / get_optional_spotify_client(): Spotify client from the session cookie
 
 backend/data/spotify_data.csv  # Kaggle dataset (not in git, see Setup step 5)
 ```
@@ -388,4 +488,5 @@ The Vibely Spotify app is in Development Mode, so only accounts added by the app
 | `pip install` works but the backend says `No module named ...` | `pip` and `python` in the venv point to different Python versions (happens if `venv` was run twice). Check with `head -1 .venv/bin/pip`; if it isn't 3.11, rebuild: `python3.11 -m venv --clear .venv && pip install -r backend/requirements.txt`. |
 | `zsh: command not found: uvicorn` | The wrong venv is active. Activate the one in the project root (`vibely/.venv`), not a new one inside `backend/`. |
 | Login or `/me` shows "Internal Server Error" | Usually your Spotify account isn't registered for the app. See [Spotify Access](#spotify-access). |
-| `/me` or `/search` says "Not logged in to Spotify." | The backend restarted. Log in again at `/auth/login`. |
+| `/me` or `/search` says "Not logged in to Spotify.", or the app says "Connect Spotify first" after you connected | The backend restarted. Click **Connect Spotify** again. |
+| After logging in, the app says "Couldn't connect to Spotify." | Check `SPOTIFY_CLIENT_SECRET` and that `SPOTIFY_REDIRECT_URI` matches the Dashboard exactly. |
