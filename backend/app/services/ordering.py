@@ -172,6 +172,39 @@ def order_tracks(
     return [with_features[index] for index in order] + without_features
 
 
+def order_track_ids(
+    track_ids: list[str],
+    features: dict[str, AudioFeatures],
+) -> list[str]:
+    """order_tracks() for plain track IDs: the same IDs in smooth-flow order.
+
+    The first ID stays first. IDs without audio features go at the end.
+    """
+    with_features = [track_id for track_id in track_ids if track_id in features]
+    without_features = [track_id for track_id in track_ids if track_id not in features]
+
+    if len(with_features) < 3:
+        return with_features + without_features
+
+    vectors = create_transition_vectors([features[track_id] for track_id in with_features])
+    order = find_smooth_order(vectors)
+
+    return [with_features[index] for index in order] + without_features
+
+
+def get_transition_scores_for_ids(
+    track_ids: list[str],
+    features: dict[str, AudioFeatures],
+) -> list[float | None]:
+    """get_playlist_transition_scores() for plain track IDs."""
+    return [
+        transition_score(features[current], features[following])
+        if current in features and following in features
+        else None
+        for current, following in zip(track_ids, track_ids[1:])
+    ]
+
+
 def get_playlist_transition_scores(
     tracks: list[Track],
     features: dict[str, AudioFeatures],

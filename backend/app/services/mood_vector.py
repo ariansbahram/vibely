@@ -1,7 +1,7 @@
 import numpy as np
 
 from app.services.feature_scaling import scale_vectors
-from app.services.mood_analysis import extract_mood_terms
+from app.services.mood_analysis import extract_weighted_mood_terms
 from app.services.mood_targets import create_target_vector
 
 
@@ -14,7 +14,7 @@ def create_mood_vector(description: str) -> np.ndarray:
 
     A description with no recognizable mood terms gives the neutral vector.
     """
-    mood_terms = extract_mood_terms(description)
+    mood_terms = extract_weighted_mood_terms(description)
 
     return create_target_vector(mood_terms)
 

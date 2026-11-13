@@ -1,3 +1,108 @@
 body {
     font-family: Arial, sans-serif;
 }
+
+/* Example moods under the mood box (index.html, #moodExamples) */
+.mood-example {
+    font-size: 0.875rem;
+    color: #d4d4d8;               /* zinc-300 */
+    background-color: #27272a;    /* zinc-800 */
+    border: 1px solid #3f3f46;    /* zinc-700 */
+    border-radius: 9999px;
+    padding: 0.375rem 0.875rem;
+    text-align: left;
+}
+
+.mood-example:hover {
+    border-color: #22c55e;        /* green-500 */
+    color: #ffffff;
+}
+
+
+/* Progress steps while a mood is processed (index.html, #progressSteps) */
+.progress-step {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: #71717a;               /* zinc-500: not started yet */
+}
+
+.progress-step[data-status="active"] {
+    color: #ffffff;
+}
+
+.progress-step[data-status="done"] {
+    color: #a1a1aa;               /* zinc-400 */
+}
+
+.progress-step .step-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    border: 2px solid #3f3f46;    /* zinc-700 */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    line-height: 1;
+}
+
+.progress-step[data-status="active"] .step-icon {
+    border-color: #22c55e;        /* green-500 */
+    border-top-color: transparent;
+    animation: step-spin 0.8s linear infinite;
+}
+
+.progress-step[data-status="done"] .step-icon {
+    border-color: #22c55e;
+    background-color: #22c55e;
+    color: #000000;
+}
+
+.progress-step[data-status="done"] .step-icon::after {
+    content: "✓";
+}
+
+@keyframes step-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Users who prefer less motion get a steady ring instead of a spinning one */
+@media (prefers-reduced-motion: reduce) {
+    .progress-step[data-status="active"] .step-icon {
+        animation: none;
+        border-top-color: #22c55e;
+    }
+}
+
+/* Previous results while new ones load */
+.is-stale {
+    opacity: 0.35;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+
+/* "Best match first" / "Smooth flow" switch on the playlist page */
+.order-option {
+    padding: 0.375rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    color: #a1a1aa;               /* zinc-400 */
+}
+
+.order-option:hover {
+    color: #ffffff;
+}
+
+.order-option[aria-pressed="true"] {
+    background-color: #22c55e;    /* green-500 */
+    color: #000000;
+    font-weight: 600;
+}
+
+.order-option:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}

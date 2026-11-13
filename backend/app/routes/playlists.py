@@ -2,13 +2,36 @@ import spotipy
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.models.playlist import PlaylistRequest, PlaylistResponse
+from app.models.playlist import (
+    PlaylistOrderRequest,
+    PlaylistOrderResponse,
+    PlaylistRequest,
+    PlaylistResponse,
+)
+from app.services.dataset import get_dataset_features
+from app.services.ordering import get_transition_scores_for_ids, order_track_ids
 from app.services.spotify_playlists import create_playlist
 from app.utils.dependencies import get_spotify_client
 
 router = APIRouter(
     tags=["Playlists"],
 )
+
+
+@router.post("/playlists/order", response_model=PlaylistOrderResponse)
+def order_playlist(request: PlaylistOrderRequest):
+    """Arrange songs so tempo, energy, and mood change gradually from one to the
+    next ("smooth flow"). No login needed; nothing is saved."""
+    track_ids = list(dict.fromkeys(request.track_ids))  # remove duplicates, keep order
+
+    features = get_dataset_features(track_ids)
+    ordered = order_track_ids(track_ids, features)
+
+    return PlaylistOrderResponse(
+        track_ids=ordered,
+        transition_scores=get_transition_scores_for_ids(ordered, features),
+        unordered_ids=[track_id for track_id in ordered if track_id not in features],
+    )
 
 
 @router.post("/playlists", response_model=PlaylistResponse, status_code=201)

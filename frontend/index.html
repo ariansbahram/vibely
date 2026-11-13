@@ -32,7 +32,8 @@
 
 
     <!-- Hero / Home -->
-    <main class="max-w-4xl mx-auto px-6 py-20">
+    <!-- Home: mood form and recommendations. Hidden while the playlist page is open. -->
+    <main id="homeView" class="max-w-4xl mx-auto px-6 py-20">
 
         <section class="text-center mb-16">
 
@@ -51,26 +52,109 @@
         <!-- Mood Form -->
         <section class="bg-zinc-900 rounded-2xl p-8 shadow-lg">
 
-            <h3 class="text-2xl font-semibold mb-4">
-                What's your vibe?
-            </h3>
+            <!-- novalidate: js/app.js checks the input and shows its own messages -->
+            <form id="moodForm" novalidate>
 
-            <form id="moodForm">
+                <label for="moodInput" class="block text-2xl font-semibold mb-2">
+                    What's your vibe?
+                </label>
+
+                <p id="moodHelp" class="text-zinc-400 mb-4">
+                    Describe the moment in your own words: where you are, what you're doing, how you feel.
+                </p>
 
                 <textarea
                     id="moodInput"
+                    name="mood"
                     rows="4"
-                    placeholder="Example: driving through a rainy city at 2 AM feeling slightly nostalgic..."
-                    class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    maxlength="500"
+                    placeholder="Example: driving through San Francisco at night while feeling nostalgic"
+                    aria-describedby="moodHelp moodError moodCounter"
+                    class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-green-500 aria-[invalid=true]:border-red-500 aria-[invalid=true]:focus:ring-red-500"
                 ></textarea>
 
-                <button
-                    id="generateButton"
-                    type="submit"
-                    class="mt-4 bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full disabled:opacity-50 disabled:cursor-wait"
-                >
-                    Generate Playlist
-                </button>
+                <div class="flex justify-between items-start gap-4 mt-2 text-sm">
+                    <!-- Validation and request errors; role="alert" reads them out to screen readers -->
+                    <p id="moodError" role="alert" class="text-red-400"></p>
+
+                    <p id="moodCounter" class="text-zinc-500 whitespace-nowrap">0 / 500</p>
+                </div>
+
+                <!-- Clicking one fills in the box -->
+                <div class="mt-4">
+                    <p class="text-sm text-zinc-500 mb-2">Need inspiration? Try one:</p>
+
+                    <!-- Styled with Tailwind classes here (not only in styles.css), so they still
+                         look like separate buttons if the browser has an old styles.css cached -->
+                    <div id="moodExamples" class="flex flex-wrap gap-2">
+                        <button type="button" class="mood-example text-sm text-left text-zinc-300 bg-zinc-800 border border-zinc-700 hover:border-green-500 hover:text-white rounded-full px-3.5 py-1.5">Driving through San Francisco at night while feeling nostalgic</button>
+                        <button type="button" class="mood-example text-sm text-left text-zinc-300 bg-zinc-800 border border-zinc-700 hover:border-green-500 hover:text-white rounded-full px-3.5 py-1.5">Rainy Sunday morning, studying with coffee</button>
+                        <button type="button" class="mood-example text-sm text-left text-zinc-300 bg-zinc-800 border border-zinc-700 hover:border-green-500 hover:text-white rounded-full px-3.5 py-1.5">Getting pumped up for a big game at the gym</button>
+                        <button type="button" class="mood-example text-sm text-left text-zinc-300 bg-zinc-800 border border-zinc-700 hover:border-green-500 hover:text-white rounded-full px-3.5 py-1.5">Cozy winter evening by the fireplace with a book</button>
+                        <button type="button" class="mood-example text-sm text-left text-zinc-300 bg-zinc-800 border border-zinc-700 hover:border-green-500 hover:text-white rounded-full px-3.5 py-1.5">Sunny road trip along the coast with friends</button>
+                    </div>
+                </div>
+
+                <!-- Smart mood understanding: the in-browser AI (js/vibe-ai.js).
+                     js/app.js shows one of these states at a time. -->
+                <div id="smartMood" class="mt-6 rounded-xl border border-zinc-700 bg-zinc-800/50 p-4 text-sm">
+
+                    <div data-state="off" class="hidden">
+                        <p class="text-zinc-300">
+                            <span class="font-semibold text-white">Smart mood understanding</span>
+                            lets Vibely understand anything you describe, however niche or mixed,
+                            with a small AI that runs on your computer. Free and private.
+                        </p>
+                        <button id="smartMoodOn" type="button" class="mt-3 text-green-400 hover:text-green-300 font-semibold underline">
+                            Turn it on (one-time download, about 1 GB)
+                        </button>
+                    </div>
+
+                    <div data-state="loading" class="hidden">
+                        <p id="smartMoodProgressText" class="text-zinc-300">Loading the AI model...</p>
+                        <div class="mt-2 h-2 rounded-full bg-zinc-700 overflow-hidden">
+                            <div id="smartMoodProgress" class="h-full bg-green-500 transition-all" style="width: 0%"></div>
+                        </div>
+                        <p class="mt-2 text-zinc-500">
+                            Smart mood understanding lets Vibely understand anything you describe, with a small AI that runs on your computer.
+                            It downloads once (about 1 GB). You can generate playlists meanwhile; Vibely uses its built-in mood words until it's ready.
+                        </p>
+                        <button id="smartMoodCancel" type="button" class="mt-2 text-zinc-400 hover:text-white underline">
+                            Stop and don't download
+                        </button>
+                    </div>
+
+                    <div data-state="ready" class="hidden flex justify-between items-center gap-4">
+                        <p class="text-zinc-300"><span class="text-green-400">●</span> Smart mood understanding is on</p>
+                        <button id="smartMoodOff" type="button" class="text-zinc-400 hover:text-white underline">Turn off</button>
+                    </div>
+
+                    <div data-state="error" class="hidden">
+                        <p id="smartMoodErrorText" class="text-red-300"></p>
+                        <button id="smartMoodRetry" type="button" class="mt-2 text-green-400 hover:text-green-300 underline">Try again</button>
+                    </div>
+
+                    <div data-state="unsupported" class="hidden">
+                        <p class="text-zinc-400">
+                            Smart mood understanding needs WebGPU (recent Chrome, Edge, or Safari on a computer).
+                            Vibely is using its built-in mood words instead.
+                        </p>
+                    </div>
+
+                </div>
+
+                <div class="flex items-center gap-4 mt-6">
+                    <button
+                        id="generateButton"
+                        type="submit"
+                        class="bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full disabled:opacity-50 disabled:cursor-wait inline-flex items-center gap-2"
+                    >
+                        <span id="generateSpinner" class="hidden w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
+                        <span id="generateLabel">Generate Playlist</span>
+                    </button>
+
+                    <span class="text-sm text-zinc-500 hidden sm:inline">or press ⌘/Ctrl + Enter</span>
+                </div>
 
             </form>
 
@@ -84,6 +168,34 @@
                 Recommended Songs
             </h3>
 
+            <!-- Shown while a mood is being processed; js/app.js fills in the steps -->
+            <div id="progressCard" class="hidden bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-6">
+
+                <div class="flex justify-between items-start gap-4">
+                    <!-- role="status": screen readers announce each step as it starts -->
+                    <ol id="progressSteps" role="status" class="space-y-3"></ol>
+
+                    <div class="flex flex-col items-end gap-2 flex-shrink-0">
+                        <!-- Updates every second, so it's hidden from screen readers -->
+                        <span id="progressTime" class="text-sm text-zinc-500 tabular-nums" aria-hidden="true">0s</span>
+
+                        <button id="cancelGenerate" type="button" class="text-sm text-zinc-400 hover:text-white underline">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Appears when a step takes longer than usual, saying why -->
+                <p id="progressHint" class="hidden mt-4 text-sm text-zinc-400"></p>
+
+            </div>
+
+            <!-- Placeholder song cards while the first results load -->
+            <div id="songSkeletons" class="hidden space-y-4" aria-hidden="true"></div>
+
+            <!-- The mood words Vibely recognized in the description -->
+            <p id="moodTerms" class="text-zinc-400 mb-4 hidden"></p>
+
             <!-- Loading, error, and "no songs" messages -->
             <p id="recommendationStatus" class="text-zinc-400 mb-4"></p>
 
@@ -93,47 +205,21 @@
         </section>
 
 
-        <!-- Playlist Preview -->
+        <!-- Leads to the playlist preview page -->
         <section id="playlistPreview" class="mt-16 hidden">
 
-            <h3 class="text-2xl font-semibold mb-4">
-                Your Vibely Playlist
-            </h3>
-
-            <div class="bg-zinc-900 rounded-xl p-6">
-
-                <div class="flex justify-between items-baseline mb-2">
-                    <label for="playlistName" class="text-zinc-400">
-                        Playlist name <span class="text-zinc-500 text-sm">(suggested from your mood, edit it if you like)</span>
-                    </label>
-
-                    <!-- Shown only after the user changes the suggested name -->
-                    <button
-                        id="useSuggestedName"
-                        type="button"
-                        class="hidden text-sm text-green-400 hover:text-green-300 underline"
-                    >
-                        Use suggested name
-                    </button>
+            <div class="bg-zinc-900 rounded-xl p-6 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h3 class="text-2xl font-semibold">Your Vibely Playlist</h3>
+                    <p id="playlistSummary" class="text-zinc-400 mt-1"></p>
                 </div>
 
-                <input
-                    id="playlistName"
-                    type="text"
-                    maxlength="100"
-                    class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3 mb-4 focus:outline-none focus:ring-2 focus:ring-green-500"
+                <a
+                    href="#playlist"
+                    class="bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full"
                 >
-
-                <button
-                    id="savePlaylist"
-                    class="bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full disabled:opacity-50 disabled:cursor-wait"
-                >
-                    Save to Spotify
-                </button>
-
-                <!-- Saving, success (with a link to the playlist), and error messages -->
-                <p id="playlistStatus" class="mt-4 hidden"></p>
-
+                    Review playlist →
+                </a>
             </div>
 
         </section>
@@ -141,7 +227,104 @@
     </main>
 
 
-    <script src="js/app.js"></script>
+    <!-- Playlist preview page (#playlist): every song in its final order before saving -->
+    <main id="playlistView" class="max-w-4xl mx-auto px-6 py-12" hidden>
+
+        <a href="#" class="text-zinc-400 hover:text-white">← Back to recommendations</a>
+
+        <!-- Cover collage, name, description, and totals -->
+        <header class="mt-8 flex flex-col sm:flex-row gap-6 sm:items-end">
+
+            <div id="playlistCover" class="w-40 h-40 sm:w-48 sm:h-48 rounded-xl overflow-hidden bg-zinc-800 grid grid-cols-2 flex-shrink-0" aria-hidden="true"></div>
+
+            <div class="flex-1 min-w-0">
+                <p class="text-sm uppercase tracking-wide text-zinc-400">Playlist preview</p>
+
+                <label for="playlistName" class="sr-only">Playlist name</label>
+                <input
+                    id="playlistName"
+                    type="text"
+                    maxlength="100"
+                    class="w-full bg-transparent text-3xl sm:text-4xl font-bold border-b-2 border-transparent hover:border-zinc-700 focus:border-green-500 focus:outline-none py-1"
+                >
+
+                <div class="flex flex-wrap items-baseline gap-x-3 mt-1 text-sm">
+                    <span class="text-zinc-500">Suggested from your mood; click the name to edit it.</span>
+
+                    <!-- Shown only after the user changes the suggested name -->
+                    <button id="useSuggestedName" type="button" class="hidden text-green-400 hover:text-green-300 underline">
+                        Use suggested name
+                    </button>
+                </div>
+
+                <p id="playlistDescription" class="text-zinc-400 mt-3"></p>
+                <p id="playlistStats" class="text-zinc-300 mt-1 font-semibold"></p>
+            </div>
+        </header>
+
+        <!-- Order: best match first, or smooth flow -->
+        <section class="mt-8 flex flex-wrap items-center gap-3" aria-labelledby="orderLabel">
+            <span id="orderLabel" class="text-zinc-400">Order:</span>
+
+            <div class="inline-flex rounded-full bg-zinc-900 p-1" role="group" aria-labelledby="orderLabel">
+                <button type="button" data-order="match" class="order-option">Best match first</button>
+                <button type="button" data-order="smooth" class="order-option">Smooth flow</button>
+            </div>
+
+            <span id="orderStatus" class="text-sm text-zinc-500"></span>
+        </section>
+
+        <p id="orderHelp" class="mt-2 text-sm text-zinc-500"></p>
+
+        <!-- "Removed X. Undo" -->
+        <div id="undoBar" class="hidden mt-6 bg-zinc-800 rounded-xl px-4 py-3 flex justify-between items-center gap-4" role="status">
+            <span id="undoText"></span>
+            <button id="undoRemove" type="button" class="text-green-400 hover:text-green-300 font-semibold underline">Undo</button>
+        </div>
+
+        <!-- The songs, in the order they will be saved -->
+        <ol id="playlistTracks" class="mt-6 space-y-2"></ol>
+
+        <!-- More songs for the same mood: refill after removing, or make it longer -->
+        <div class="mt-4 flex flex-wrap items-center gap-4">
+            <button
+                id="addSongs"
+                type="button"
+                class="bg-zinc-800 hover:bg-zinc-700 text-white font-semibold px-5 py-2 rounded-full disabled:opacity-50 disabled:cursor-wait"
+            >
+                + Add songs
+            </button>
+
+            <!-- "No more songs match", errors -->
+            <p id="playlistNotice" class="text-sm text-zinc-400" role="status"></p>
+        </div>
+
+        <p id="playlistEmpty" class="hidden mt-6 text-zinc-400">
+            The playlist is empty. <a href="#" class="text-green-400 underline">Go back</a> to generate new songs.
+        </p>
+
+        <!-- Save -->
+        <footer class="mt-10 bg-zinc-900 rounded-xl p-6 flex flex-wrap items-center justify-between gap-4">
+            <p class="text-zinc-400">
+                Saved as a <span class="text-white">private</span> playlist in your Spotify account, in exactly this order.
+            </p>
+
+            <button
+                id="savePlaylist"
+                class="bg-green-500 hover:bg-green-400 text-black font-semibold px-6 py-3 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                Save to Spotify
+            </button>
+
+            <!-- Saving, success (with a link to the playlist), and error messages -->
+            <p id="playlistStatus" class="w-full hidden"></p>
+        </footer>
+
+    </main>
+
+
+    <!-- A module so it can import js/vibe-ai.js -->
+    <script type="module" src="js/app.js"></script>
 
 </body>
 </html>

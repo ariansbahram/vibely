@@ -36,6 +36,7 @@ def search_tracks(spotify: spotipy.Spotify, query: str, limit: int = 10):
             explicit=item.get("explicit"),
             popularity=item.get("popularity"),
             release_year=get_release_year(item["album"].get("release_date")),
+            duration_ms=item.get("duration_ms"),
         ))
 
     return tracks

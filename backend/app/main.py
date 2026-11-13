@@ -1,3 +1,6 @@
+import threading
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.services.spotify_auth import FRONTEND_URL
@@ -11,7 +14,20 @@ from app.routes.playlists import router as playlists_router
 
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load the song dataset and build its caches in the background, so the
+    # server starts right away and the first search isn't slow
+    from app.services.entity_detection import get_artist_index
+    from app.services.music_lookup import get_title_index
+    from app.services.recommender import warm_up
+
+    threading.Thread(target=lambda: (warm_up(), get_artist_index(), get_title_index()), daemon=True).start()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Vibely API",
     description="Backend API for Vibely",
     version="1.0.0",

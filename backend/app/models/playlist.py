@@ -30,6 +30,25 @@ class PlaylistRequest(BaseModel):
     public: bool = Field(False, description="Show the playlist on the user's Spotify profile")
 
 
+# Smooth-flow ordering is a search over many orders, so it's limited to a playlist-sized list
+MAX_TRACKS_TO_ORDER = 100
+
+
+class PlaylistOrderRequest(BaseModel):
+    track_ids: list[TrackId] = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_TRACKS_TO_ORDER,
+        description="Spotify track IDs, best match first; the first one stays first",
+    )
+
+
+class PlaylistOrderResponse(BaseModel):
+    track_ids: list[str]                       # the same IDs, in smooth-flow order
+    transition_scores: list[float | None]      # how smoothly each song leads into the next, 0–1
+    unordered_ids: list[str]                   # IDs without audio features, put at the end
+
+
 class PlaylistResponse(BaseModel):
     id: str              # Spotify playlist ID
     name: str

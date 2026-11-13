@@ -13,6 +13,7 @@ Users can enter detailed moods or situations, and Vibely will recommend songs wi
 - NumPy
 - scikit-learn
 - HTML/CSS
+- WebLLM (optional in-browser AI for understanding mood descriptions)
 - JavaScript
 - Tailwind CSS
 
@@ -107,14 +108,31 @@ uvicorn app.main:app --reload
 
 ```bash
 cd ~/vibely/frontend
-python3 -m http.server 5500
+python3 dev_server.py
 ```
+
+`dev_server.py` serves the frontend on port 5500 like `python3 -m http.server 5500`, but tells the browser not to cache, so changes show up on a normal refresh.
 
 Then open http://127.0.0.1:5500 in the browser.
 
 Use `127.0.0.1`, not `localhost`, so the login cookie is sent to the backend.
 
 The backend only accepts browser requests from `http://127.0.0.1:5500` (CORS). If you serve the frontend somewhere else, set `FRONTEND_URL` in `.env` to match.
+
+**The mood form** is the main box on the page. Describe the moment in your own words, for example "driving through San Francisco at night while feeling nostalgic", or click one of the examples under it, then press **Generate Playlist** (or ⌘/Ctrl + Enter). The form checks the description before sending it, using the same rules as the backend (3–500 characters, at least one letter), and shows what's wrong under the box. While it works, a progress card under **Recommended Songs** shows each step (understanding the mood, if smart mood understanding is on, then finding songs), how long it has taken, and a **Cancel** button; placeholder cards stand in for the songs on the first search, and on later searches the previous songs stay visible but faded until the new ones arrive. If a step runs long, a note explains why (for example, the first search after the backend starts is slower while the song library loads). After the songs load, it shows which mood words Vibely picked up on, or a tip if it didn't recognize any.
+
+**Song cards** show each recommendation's rank, album cover, title (with an **E** badge if it's explicit), artists, album (when logged in), year, length, genre, tempo, and energy/mood/acoustic/danceable levels, plus how well it matches. **▶ Preview** plays the song right on the page in Spotify's embedded player: a 30-second preview, or the full song if you're logged in to Spotify in that browser (Spotify no longer gives new apps direct preview links). Only one preview plays at a time. **Open in Spotify**, or clicking the album cover, opens the song in Spotify.
+
+**The playlist preview page** opens from **Review playlist →** under the results (address `#playlist`, so the browser's Back button works). It shows the playlist exactly as it will be saved: a cover made from the first album covers, the name (click to edit; the suggested name can be restored), the description, the number of songs, total length, and every song in its final order. You can:
+
+- choose the order: **Best match first**, or **Smooth flow**, which arranges the songs so tempo, energy, and mood change gradually from one to the next (the best match stays first);
+- move songs up or down with ↑ and ↓ (this makes it a custom order) and remove them with ✕;
+- swap a song with ↻: it's replaced, in the same spot, by the best other song for the same mood;
+- **Add songs**: after removing songs it offers to get back to the original size (e.g. "Add 3 songs (back to 10)"), otherwise it adds 5 more, up to 50. New songs keep the chosen order (re-sorted by match, or re-arranged for smooth flow);
+- **Undo** the last removal or swap;
+- **Save to Spotify**, which creates the playlist in exactly that order. After saving, the button shows **Saved ✓** until you change something; saving again creates a second playlist.
+
+Logging in to Spotify from the preview page brings you back to it with the same songs and order.
 
 **Connect Spotify** takes you to Spotify's login page and then back to the app, which shows "Connected to Spotify." and changes the button to "Connected as <your name>". Songs already on screen are kept through the login, so you can generate songs first and connect when you want to save them.
 
@@ -130,6 +148,7 @@ The backend only accepts browser requests from `http://127.0.0.1:5500` (CORS). I
 | http://127.0.0.1:8000/audio-features?ids=0VjIjW4GlUZAMYd2vXMi3b | Audio features (energy, valence, tempo, etc.) for up to 100 comma-separated Spotify track IDs |
 
 | `POST` http://127.0.0.1:8000/recommendations | Submit a mood or situation description (see [Recommendations](#recommendations)) |
+| `POST` http://127.0.0.1:8000/playlists/order | Arrange songs in smooth-flow order (see [Playlists](#playlists)) |
 | `POST` http://127.0.0.1:8000/playlists | Save songs as a new playlist in the user's Spotify account (log in first, see [Playlists](#playlists)) |
 
 Logins are stored in memory, so restarting the backend (including auto-reload on save) logs everyone out.
@@ -169,6 +188,10 @@ curl -X POST http://127.0.0.1:8000/recommendations -H "Content-Type: application
 {
   "mood": "rainy Sunday morning, studying with coffee",
   "mood_terms": ["rainy", "morning", "focused"],
+  "understood_by": "keywords",
+  "preferred_genres": [],
+  "genre_affinity": {"acoustic": 1.0, "folk": 1.0, "indie-pop": 1.0, "jazz": 1.0, "piano": 0.5},
+  "notes": [],
   "target_features": {
     "energy": 0.383,
     "tempo": 95.0,
@@ -190,6 +213,7 @@ curl -X POST http://127.0.0.1:8000/recommendations -H "Content-Type: application
       "explicit": null,
       "popularity": 6,
       "release_year": 2016,
+      "duration_ms": 274533,
       "score": 0.9745,
       "audio_features": {
         "track_id": "6cdKPAK7e6DiiQXvdyi86d",
@@ -216,6 +240,9 @@ curl -X POST http://127.0.0.1:8000/recommendations -H "Content-Type: application
 | `limit` | How many songs to return, 1–50 (default 10) |
 | `max_per_artist` | Most songs by one artist (default 2); `null` for no limit |
 | `filters` | Optional, see [Filters](#filters) |
+| `vibe` | Optional, the in-browser AI's reading of the mood, see [Smart mood understanding](#smart-mood-understanding) |
+
+`preferred_genres` lists the genres Vibely looked in first (see `MOOD_GENRES`; usually empty). `genre_affinity` says how well each genre suits the mood, 0–1 (see `GENRE_AFFINITY`), e.g. `{"folk": 1.0, "jazz": 1.0, "piano": 0.5}` for "rainy Sunday morning".
 
 `playlist_title` is a suggested name for the playlist, built from the mood terms by `generate_playlist_title()` in `services/playlist_title.py`:
 
@@ -231,8 +258,15 @@ A title is: one feeling word (two joined with `&` if there's nothing else), then
 
 Each song in `recommendations` has:
 
-- `title`, `artists`, `genre`, `popularity`, `release_year`, and `spotify_url` (opens the song in Spotify).
-- `score`: how close the song is to the mood's target features, from 0 to 1 (Euclidean, see [Similarity scores](#similarity-scores)).
+- `title`, `artists`, `genre`, `popularity`, `release_year`, `duration_ms` (length), and `spotify_url` (opens the song in Spotify).
+- `score`: how well the song fits the mood, 0 to 1, shown as "% match". It combines:
+  - **audio fit (60%)**: how close its tempo, energy, mood, acousticness, danceability, and instrumentalness are to the targets. 1.0 is exactly on target, 0.0 is as far off as a typical song. (Raw distance can't be used as-is: with 1.16M songs, dozens sit almost exactly on any target, so the top songs would all look like 96–97% matches and come from every genre at random.)
+  - **genre fit (30%)**: how well the song's genre suits the mood (`genre_affinity`).
+  - **popularity (10%)**: a small preference for songs people might know (full credit at Spotify popularity 60+).
+
+  With no recognized mood words there's no genre opinion, so audio fit counts 85% and popularity 15%.
+- Left out unless the request picks genres: live recordings (liveness above 0.8), spoken word (speechiness above 0.66), and comedy.
+- For variety, one genre fills at most 40% of the playlist (`MAX_GENRE_SHARE` in `ranking.py`) unless there aren't enough songs from other fitting genres.
 - `audio_features`: the song's tempo, energy, valence, etc. (same fields as `/audio-features`).
 - `album_image_url`: the album artwork. When logged in to Spotify, `album` and `explicit` are filled in too; when logged out they are `null`, and the artwork comes from Spotify's public oEmbed endpoint instead.
 
@@ -247,6 +281,83 @@ The `mood` field is validated by the `RecommendationRequest` Pydantic model:
 
 Invalid input returns `422` with a message saying what is wrong. If no song passes the filters, `recommendations` is an empty list.
 
+#### More songs for the same mood
+
+`POST /recommendations/more` returns new songs for the same description, e.g. to replace songs the user removed from the playlist. Send the same `mood` (and `vibe`, if smart mood understanding read it) as the `/recommendations` request. The backend works the mood out again the same way, without running the in-browser AI a second time, so the new songs fit the same mood, artists, genres, and years.
+
+```json
+{
+  "mood": "sad taylor swift songs",
+  "playlist_ids": ["<songs in the playlist now>"],
+  "exclude_ids": ["<songs the user removed>"],
+  "limit": 1
+}
+```
+
+- New songs are never in `playlist_ids` or `exclude_ids`, and never another version of a song in the playlist (same title and main artist).
+- `max_per_artist` (default 2) counts the whole playlist: an artist with two songs in `playlist_ids` gets no more. Artists the user named are exempt.
+- With a named artist, the artist's share of the playlist is kept: swapping out one of their songs brings another of theirs.
+- `limit` is 1–20 (default 1). The reply is `{"recommendations": [...]}`, best match first, in the same format as `/recommendations`; it's empty if no other songs pass.
+
+#### Artists, genres, and years
+
+Besides moods, `detect_entities()` in `services/entity_detection.py` finds what the description names outright, and `interpret_mood()` applies it:
+
+| The user writes | Vibely picks up | The playlist |
+|---|---|---|
+| `taylor swift` | artist Taylor Swift | all Taylor Swift, best-known songs first (Anti-Hero, Don't Blame Me, cardigan...) |
+| `sad taylor swift songs` | Taylor Swift + sad | half her songs that fit the mood, half similar-sounding songs from her genre (pop), mixed in between |
+| `songs like phoebe bridgers` | Phoebe Bridgers, similar | a few of hers, mostly similar artists (Holly Humberstone, beabadoobee, Mitski...) |
+| `drake and future for the gym` | Drake, Future + workout | both artists shared fairly, plus hip-hop from others |
+| `chill jazz for studying` | genre jazz + chill, focused | jazz only (other genres only if no jazz fits) |
+| `early 2010s throwbacks` | 2010–2014 + nostalgic | that era's hits (Wrecking Ball, Let Her Go, No Role Modelz...) |
+| `90s rock` | rock + nostalgic | rock, with a note: the library only covers 2000–2023 |
+
+- **Artists** are matched against the dataset's 64,000 artist names (accents and "the" optional: `beyonce`, `weeknd`). Only artists with a reasonably popular song count (Spotify popularity 45+, or 60+ for one-word names), so an obscure artist called "Sunday" doesn't match "rainy sunday". Names that are ordinary words ("King", "Future", "Ghost") need a cue: "songs by Future", "Ghost songs", or being listed with another artist ("drake and future").
+- **Genres** use `GENRE_WORDS`, e.g. `hip hop`/`rap` → hip-hop, `r&b` → soul, `k-pop`, `country`, `indie`. Words that are common in everyday speech need a clearer form: "soul music" not "my soul", "house music" not "at my house".
+- **Years**: decades (`2000s`, `early 2010s`, `y2k`), years (`2016`), and `recent`/`new music`. The dataset only has 2000–2023; earlier decades get a note instead.
+- The response's `mood_terms` lists what was found (`["Taylor Swift", "sad"]`), `playlist_title` uses it ("Sad Taylor Swift Mix", "Chill Jazz Focus", "Early 2010s Nostalgic Vibes"), and `notes` explains anything Vibely couldn't do.
+
+#### Songs and artists to sound like
+
+Vibely also finds songs and artists the user wants music *like*, and looks them up: in the dataset first, then online through ReccoBeats for ones the dataset doesn't have (`services/music_lookup.py`).
+
+| The user writes | Vibely finds | The playlist |
+|---|---|---|
+| `songs like cruel summer` | the song Cruel Summer (Taylor Swift) | songs that sound like it, from its genre; well-known songs count more; Cruel Summer itself is left out |
+| `something like ribs by lorde but sadder` | Ribs (Lorde) + sad | songs like Ribs, nudged sadder (Lana Del Rey, Joji, Olivia Rodrigo...) |
+| `songs like good 4 u and drivers license` | both songs | songs like both |
+| `"espresso"`, `cruel summer vibes`, `the vibe of blinding lights` | the song | songs like it |
+| `bad bunny` (not in the dataset) | Bad Bunny, online | songs that sound like Bad Bunny's music, in Spanish, starting with artists Bad Bunny works with that the dataset has (Arcángel, Tainy, Nio Garcia), with a note saying so |
+| `chill songs like sunflower by post malone` | Sunflower (Post Malone), online | chill songs that sound like it |
+
+- References are found after cues (`songs like`, `similar to`, `the vibe of`, `sounds like`, ...), in quotes, as `TITLE by ARTIST`, before `vibes`/`energy`/`type beat`, or as a short description that's only a name (`bad bunny`, `espresso`). A plain "like" counts only when it isn't describing a feeling: "feeling like a ghost" stays a mood.
+- A name that could be a song or an artist goes to the more popular one. A title on its own goes to its most popular version, online or in the dataset ("espresso" is Sabrina Carpenter's, not an older song of the same name).
+- Words in a found title don't count as moods: "songs like cruel summer" isn't "sunny".
+- Online lookups send only the typed song or artist name to ReccoBeats. They take a few seconds the first time; results are cached until the server restarts. Online artists need a track with popularity 30+, so look-alike accounts don't match.
+
+#### Languages
+
+Songs are in **English unless the user asks otherwise** (`services/language.py`). The dataset has no language field, so each song's language is estimated:
+
+1. The script: Hangul is Korean, kana Japanese, Cyrillic Russian, and so on.
+2. For Latin script, common words and letters vote ("corazón", "não", "und", "aşk"; ñ, ã, ş, å).
+3. Otherwise, a genre that's mostly one language decides (`k-pop` is Korean, `sertanejo` Portuguese), then a clearly English title, then the language of most of the artist's titles.
+
+It's a heuristic: about 72% of the dataset comes out English, and an individual song can be wrong (for example, a romanized title from an artist who mostly sings in another language). Working it out takes ~30 s once; the result is saved to `backend/data/song_languages.npz` and reused.
+
+Which languages are allowed:
+
+| The user writes | Languages |
+|---|---|
+| `rainy sunday morning` | English |
+| `sad spanish songs`, `songs in french`, `bollywood`, `k-pop party` | only the language asked for (shown as e.g. "Sad Spanish Vibes") |
+| `international chill songs`, `any language` | any |
+| `songs like bts`, `bad bunny`, `songs like tití me preguntó` | the language of the artists, songs, or genres named (Korean, Spanish) |
+| `canciones tristes para llorar` | the language the description is written in (Spanish) |
+
+Songs by artists the user named are never filtered out by language. If no songs pass, any language is used.
+
 #### Mood terms
 
 `extract_mood_terms()` in `services/mood_analysis.py` finds the meaningful terms in the description and returns them in the order they appear:
@@ -256,10 +367,39 @@ extract_mood_terms("Nostalgic late-night drive in the rain")
 # ["nostalgic", "late night", "road trip", "rainy"]
 ```
 
-- It knows 27 terms (feelings, energy level, time and weather, activities), each with a list of words and phrases that signal it, e.g. `studying`, `homework`, and `coding` all give `focused`. To teach it a new word, add it to `MOOD_TERMS`.
+- It knows 56 terms (feelings, energy level, time/weather/seasons, places and activities) and about 870 words and phrases that signal them, including slang (`in my feels` gives `sad`, `villain era` gives `rebellious`, `delulu` gives `dreamy`). For example `studying`, `finals`, and `lock in` all give `focused`. To teach it a new word, add it to `MOOD_TERMS`; a new term also needs targets in `MOOD_TARGETS` and a title word in `playlist_title.py`.
+- Intensity words change how much a term counts: `"a little sad but very excited"` counts `sad` at half weight and `excited` at 1.5×, so the songs lean excited. `extract_weighted_mood_terms()` returns these weights, and `get_target_features()` accepts them.
 - Case, punctuation, and hyphens are ignored, and only whole words match (`train` does not give `rainy`).
 - A term right after a negation is skipped: `"not sad, just tired"` gives `["sleepy"]`.
 - A description with no known words gives an empty list.
+
+#### Smart mood understanding
+
+The word lists only know the words someone added. For everything else (niche, specific, or mixed descriptions like "my cat knocked my coffee off the table and I'm laughing"), the frontend can use a small AI model that runs in the browser with [WebLLM](https://github.com/mlc-ai/web-llm). It is free, needs no API key, and the description doesn't leave the computer for this step.
+
+- **Downloading:** on someone's first visit, the model (`Qwen2.5-1.5B-Instruct`, `MODEL_ID` in `frontend/js/vibe-ai.js`) starts downloading by itself, about 1 GB, with a progress bar under the mood box. Vibely works with its built-in mood words in the meantime. The browser keeps the model, so later visits load it in a few seconds.
+  - It doesn't download by itself on a data-saver or slow (3G or slower) connection, or on a device that reports less than 4 GB of memory. There, the panel offers **Turn it on** instead.
+  - **Stop and don't download** (during the download) and **Turn off** (afterwards) are remembered, so it doesn't download again on the next visit. **Turn it on** brings it back.
+  - To delete the downloaded model: in Chrome on the Vibely page, DevTools → Application → Storage → Clear site data.
+- **Requirements:** a browser with WebGPU (recent Chrome, Edge, or Safari on a computer) and about 1.6 GB of graphics memory. Otherwise the panel says so and Vibely uses the word lists.
+- **Speed:** reading a description takes about 6–13 seconds on an older Intel MacBook; faster on newer computers.
+- **What it sends:** `vibe-ai.js` asks the model for a level (`very_low` to `very_high`) for each audio feature, 1–4 mood words, up to 3 genres from the dataset's list, and a playlist title. WebLLM's JSON mode makes the model's answer fit that shape. The frontend sends it as `vibe` with the request:
+
+```json
+{
+  "mood": "my cat knocked my coffee off the table and I'm laughing",
+  "vibe": {
+    "moods": ["amused", "playful", "silly"],
+    "energy": "medium", "valence": "very_high", "tempo": "medium",
+    "acousticness": "medium", "danceability": "medium", "instrumentalness": "low",
+    "genres": [],
+    "title": "Cat Chaos Morning"
+  }
+}
+```
+
+- **How the backend uses it** (`interpret_mood()` in `services/mood_interpretation.py`): the levels become numbers (`medium` = 0.5, tempo `fast` = 128 BPM). The AI's mood words are also run through the word lists, so `"playful"` brings in the hand-tuned `playful` targets. For features a known mood has a target for, the AI's value and the hand-tuned one are averaged (the hand-tuned one counts more, 70%, when the user's own words name a known mood); for the rest, the AI's value is used. Genres from a known mood (see `MOOD_GENRES`) beat the AI's genre guesses. The AI's title becomes `playlist_title`, and `understood_by` is `"ai"`.
+- **If anything goes wrong** (model still loading, slow answer, unusable answer, or the backend rejects the `vibe`), the request is sent without `vibe`, and the word lists are used as before.
 
 #### Target features
 
@@ -275,6 +415,7 @@ extract_mood_terms("Nostalgic late-night drive in the rain")
 - A term only sets the features it has an opinion about.
 - With several terms, each feature is the average of the terms that mention it, so `["energetic", "sad"]` gives energy 0.60.
 - A feature that no term mentions gets a neutral value close to the dataset's middle (energy 0.65, tempo 120, valence 0.45, acousticness 0.30, danceability 0.55, instrumentalness 0.10). With no terms at all, every feature is neutral.
+- Some moods are about a style of music more than its numbers, so `MOOD_GENRES` also limits them to fitting genres: `fairytale` (knights, princesses, castles) to `classical`, `opera`, `show-tunes`; `rave` to techno, house, EDM, and trance; `tavern` (medieval, pirates, sea shanties) to `folk`; `meditative` to `ambient`, `new-age`, `sleep`; `worship` to `gospel`. A genre filter in the request takes priority, and if the preferred genres leave no songs (for example with an artist filter), any genre is used.
 - `create_target_vector()` returns the same targets as a NumPy vector in the same feature order as `create_song_vector()`.
 
 #### Mood vector
@@ -289,6 +430,8 @@ create_mood_vector("something energetic for the gym")
 `create_scaled_mood_vector()` returns the same vector on the 0–1 scale used by `create_scaled_song_vector()`, so a mood and a song can be compared directly.
 
 #### Similarity scores
+
+> `POST /recommendations` no longer ranks by these scores alone; it uses `get_fit_scores()` in `services/recommender.py`, which adds genre fit and popularity (see the `score` field above). The functions below are still available for comparing songs by sound only.
 
 `score_tracks()` in `services/similarity.py` compares a mood description against candidate tracks (a list of `AudioFeatures`) and returns a score for each one, best match first:
 
@@ -408,7 +551,21 @@ curl -X POST http://127.0.0.1:8000/playlists -b "vibely_session=<your session co
 - `create_playlist()` in `services/spotify_playlists.py` uses Spotipy's `current_user_playlist_create()` and `playlist_add_items()`, adding songs 100 at a time (Spotify's limit per request).
 - If Spotify rejects the songs after creating the playlist, the empty playlist is removed again and the request fails.
 - `403` usually means the login is missing the playlist permissions (log in again) or, while the Spotify app is in Development Mode, the user isn't on the app's list of allowed users in the Spotify Developer Dashboard.
-- In the frontend, **Save to Spotify** (under the recommendations) calls this endpoint with the songs currently shown and the name in the **Playlist name** box. The box starts with the suggested `playlist_title` and can be changed; **Use suggested name** puts the suggestion back, and an empty box saves with the suggestion.
+- In the frontend, **Save to Spotify** on the playlist preview page calls this endpoint with the songs in the order shown there and the playlist name at the top of the page. The name starts as the suggested `playlist_title` and can be changed; **Use suggested name** puts the suggestion back, and an empty name saves with the suggestion.
+
+`POST /playlists/order` returns the same songs in smooth-flow order (no login needed, nothing is saved). It uses `order_track_ids()` in `services/ordering.py` (see [Playlist order](#playlist-order)) with audio features from the dataset; songs without features go at the end and are listed in `unordered_ids`. At most 100 songs; 50 take under a second.
+
+```bash
+curl -X POST http://127.0.0.1:8000/playlists/order -H "Content-Type: application/json" -d '{"track_ids": ["6cdKPAK7e6DiiQXvdyi86d", "398KEejceOUqgLi5HqSh8v", "0Rb8NUbVXhzoNB69Hl1U4G"]}'
+```
+
+```json
+{
+  "track_ids": ["6cdKPAK7e6DiiQXvdyi86d", "398KEejceOUqgLi5HqSh8v", "0Rb8NUbVXhzoNB69Hl1U4G"],
+  "transition_scores": [0.9639, 0.9588],
+  "unordered_ids": []
+}
+```
 
 ## Project Structure
 
@@ -434,6 +591,7 @@ backend/app/
 │   ├── spotify_search.py      # search_tracks()
 │   ├── spotify_playlists.py   # create_playlist(): new playlist in the user's account, songs added
 │   ├── playlist_title.py      # generate_playlist_title(): suggested playlist name from the mood terms
+│   ├── mood_interpretation.py # interpret_mood(): word lists + optional in-browser AI vibe -> targets, genres, title
 │   ├── roccobeats.py          # get_audio_features(): ReccoBeats API (main source)
 │   ├── dataset.py             # get_dataset_features(): Kaggle CSV lookup (backup)
 │   ├── feature_lookup.py      # get_features_with_backup(): ReccoBeats, then dataset
@@ -444,11 +602,18 @@ backend/app/
 │   ├── ranking.py             # rank_tracks(): top matches, no duplicates, optional artist limit
 │   ├── filters.py             # filter_tracks(): genre, artist, explicit, popularity, release year
 │   ├── ordering.py            # order_tracks(): smooth transitions between consecutive tracks
-│   ├── recommender.py         # recommend_tracks(): mood -> ranked dataset songs (used by POST /recommendations)
+│   ├── recommender.py         # recommend_tracks(): target features -> ranked dataset songs (used by POST /recommendations)
 │   └── track_details.py       # add_track_details(): album, artwork, explicit flag from Spotify or oEmbed
 └── utils/dependencies.py      # get_spotify_client() / get_optional_spotify_client(): Spotify client from the session cookie
 
 backend/data/spotify_data.csv  # Kaggle dataset (not in git, see Setup step 5)
+
+frontend/
+├── index.html                 # the page: mood form, results, playlist saving
+├── css/styles.css
+└── js/
+    ├── app.js                 # form checks, calls the backend, shows songs, saves playlists
+    └── vibe-ai.js             # smart mood understanding: in-browser AI (WebLLM) that reads the mood
 ```
 
 ## Audio Features
@@ -489,4 +654,5 @@ The Vibely Spotify app is in Development Mode, so only accounts added by the app
 | `zsh: command not found: uvicorn` | The wrong venv is active. Activate the one in the project root (`vibely/.venv`), not a new one inside `backend/`. |
 | Login or `/me` shows "Internal Server Error" | Usually your Spotify account isn't registered for the app. See [Spotify Access](#spotify-access). |
 | `/me` or `/search` says "Not logged in to Spotify.", or the app says "Connect Spotify first" after you connected | The backend restarted. Click **Connect Spotify** again. |
+| The page looks half-styled or out of date after an update (e.g. "Best match firstSmooth flow" run together as plain text) | The browser is using old copies of the files. Serve the frontend with `python3 dev_server.py` instead of `python3 -m http.server`, then hard-refresh once: ⌘+Shift+R on Mac, Ctrl+Shift+R on Windows. |
 | After logging in, the app says "Couldn't connect to Spotify." | Check `SPOTIFY_CLIENT_SECRET` and that `SPOTIFY_REDIRECT_URI` matches the Dashboard exactly. |

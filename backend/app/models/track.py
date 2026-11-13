@@ -15,3 +15,4 @@ class Track(BaseModel):
     explicit: bool | None = None     # True if marked explicit (from Spotify; the dataset has no flag)
     popularity: int | None = None    # 0–100, higher is more popular
     release_year: int | None = None  # e.g. 2019
+    duration_ms: int | None = None   # song length in milliseconds

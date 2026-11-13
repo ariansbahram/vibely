@@ -29,6 +29,7 @@ TRACK_COLUMNS = [
     "genre",
     "popularity",
     "year",
+    "duration_ms",
 ]
 
 

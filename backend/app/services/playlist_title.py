@@ -17,12 +17,26 @@ DESCRIBE_WORDS = {
     "melancholic": "Melancholy",
     "heartbroken": "Heartbroken",
     "lonely": "Lonely",
+    "longing": "Longing",
+    "homesick": "Homesick",
+    "grieving": "Grieving",
+    "numb": "Numb",
     "angry": "Angry",
     "anxious": "Restless",
     "romantic": "Romantic",
+    "sensual": "Sultry",
     "nostalgic": "Nostalgic",
+    "reflective": "Reflective",
     "hopeful": "Hopeful",
+    "grateful": "Grateful",
+    "excited": "Excited",
+    "triumphant": "Triumphant",
     "confident": "Confident",
+    "playful": "Playful",
+    "rebellious": "Rebellious",
+    "epic": "Epic",
+    "mysterious": "Mysterious",
+    "fairytale": "Fairytale",
     "dreamy": "Dreamy",
     "dark": "Dark",
     "energetic": "High Energy",
@@ -37,7 +51,11 @@ DESCRIBE_WORDS = {
 
 WHEN_WORDS = {
     "late night": "Late Night",
+    "evening": "Evening",
     "morning": "Morning",
+    "autumn": "Autumn",
+    "spring": "Spring",
+    "holiday": "Holiday",
 }
 
 WHAT_WORDS = {
@@ -45,6 +63,17 @@ WHAT_WORDS = {
     "workout": "Workout",
     "party": "Party",
     "road trip": "Road Trip",
+    "meditative": "Meditation",
+    "worship": "Worship",
+    "rave": "Rave",
+    "tavern": "Tavern",
+    "travel": "Travels",
+    "walking": "Walk",
+    "nature": "Escape",
+    "city": "City",
+    "cleaning": "Cleaning Spree",
+    "cooking": "Kitchen",
+    "gaming": "Gaming Session",
 }
 
 # Ends a title that has no "what" word: "Rainy Morning" -> "Rainy Morning Vibes"
@@ -62,18 +91,19 @@ MAX_TITLE_LENGTH = 100  # Spotify's limit for playlist names
 MAX_FALLBACK_LENGTH = 50
 
 
-def generate_playlist_title(mood: str, mood_terms: list[str]) -> str:
+def generate_playlist_title(mood: str, mood_terms: list[str], genre_word: str | None = None) -> str:
     """A short playlist title for a mood description.
 
     mood        – the user's description, as sent to /recommendations
     mood_terms  – the terms extract_mood_terms() found in it, in order
+    genre_word  – a genre the user named, e.g. "Jazz": "Chill Jazz Focus"
     """
     describe = [DESCRIBE_WORDS[term] for term in mood_terms if term in DESCRIBE_WORDS]
     when = [WHEN_WORDS[term] for term in mood_terms if term in WHEN_WORDS]
     what = [WHAT_WORDS[term] for term in mood_terms if term in WHAT_WORDS]
 
     if not (describe or when or what):
-        return title_from_description(mood)
+        return f"{genre_word} {LONE_WHAT_ENDING}" if genre_word else title_from_description(mood)
 
     # With a time or activity, one describe word is enough ("Rainy Morning Focus");
     # on their own, two read well joined with "&" ("Sad & Lonely Vibes")
@@ -84,7 +114,7 @@ def generate_playlist_title(mood: str, mood_terms: list[str]) -> str:
         describe = describe[:MAX_DESCRIBE_WORDS]
         describing = [" & ".join(describe)] if describe else []
 
-    parts = [*describing, *when[:1], what[0] if what else DEFAULT_ENDING]
+    parts = [*describing, *([genre_word] if genre_word else []), *when[:1], what[0] if what else DEFAULT_ENDING]
 
     if len(parts) == 1:
         parts.append(LONE_WHAT_ENDING)
